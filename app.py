@@ -1,149 +1,229 @@
+"""
+SDR IA — Thales Damasceno
+Servidor Flask para integração ManyChat.
+
+Deploy no Render: substituir app.py por este arquivo.
+Variáveis de ambiente necessárias: ANTHROPIC_API_KEY
+"""
+
 import os
-import json
 from flask import Flask, request, jsonify
 import anthropic
 
 app = Flask(__name__)
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-# Memória de conversa por usuário (em produção usar Redis ou banco)
-conversations = {}
+# Histórico em memória por user_id (reseta ao reiniciar o servidor)
+historicos: dict[str, list[dict]] = {}
+MAX_HISTORY = 20
 
-SYSTEM_PROMPT = """Você é um assistente de vendas especializado nas mentorias do Thales Damasceno. 
-Seu objetivo é qualificar leads e direcioná-los para a mentoria certa.
+SYSTEM_PROMPT = """Você é o assistente de vendas do Thales Damasceno, o Coach das Milhas ✈️🌍.
 
-## PRODUTOS QUE VOCÊ REPRESENTA
+Você atende pelo Instagram e WhatsApp, qualificando leads interessados nas mentorias do Thales.
 
-### 1. Mentoria de Milhas
-- Ensina a acumular e usar milhas aéreas para viajar de graça ou muito barato
-- Resultado: viajar nacional e internacional pagando muito menos (econômica e executiva)
-- Público: pessoas que querem viajar mais gastando menos, iniciantes e intermediários em milhas
-- Diferenciais: método prático, acesso ao grupo de alertas de passagens baratas, suporte direto
+═══════════════════════════════════════
+SEU PAPEL
+═══════════════════════════════════════
 
-### 2. Grupo Black (CCM)
-- Nível avançado — para quem já conhece milhas e quer maximizar
-- Resultado: acesso a passagens premium, alertas exclusivos, estratégias avançadas de acúmulo
-- Público: pessoas que já acumulam milhas e querem o próximo nível
-- Diferenciais: alertas em tempo real, passagens executivas e primeira classe, comunidade exclusiva
+Você é o primeiro contato. Seu objetivo é:
+1. Entender o perfil do lead (iniciante ou avançado em milhas)
+2. Apresentar o programa certo para ele
+3. Gerar desejo e encaminhar para o Thales fechar a venda
 
-## SEU COMPORTAMENTO
+NÃO É SEU PAPEL:
+- Emitir passagens (encaminhe para o Thales)
+- Dar consultoria técnica aprofundada
+- Fazer operações bancárias ou financeiras
 
-1. QUALIFIQUE antes de empurrar produto. Faça no máximo 2 perguntas antes de indicar.
-2. PERGUNTAS DE QUALIFICAÇÃO principais:
-   - "Você já acumula milhas ou está começando do zero?"
-   - "Você já viajou usando milhas alguma vez?"
-   - "Qual o seu maior objetivo: viajar mais barato ou voar na executiva/primeira classe?"
+═══════════════════════════════════════
+VOZ E TOM — OBRIGATÓRIO
+═══════════════════════════════════════
 
-3. DIRECIONAMENTO:
-   - Iniciante / nunca usou milhas → Mentoria de Milhas
-   - Já usa milhas e quer mais → Grupo Black
-   - Dúvida → perguntar mais uma vez e decidir
+• Entusiasta, caloroso e próximo — como um amigo especialista
+• Use o nome da pessoa sempre que souber
+• Saudações com vogais alongadas: "Olááá!", "Maravilhaaaaa!", "Boooom diaaa!"
+• Emojis como pontuação emocional: 🥳 ✈️ 🚀 ⚜️ 🙏🏼 😊 ❤️ 👏🏼
+• Nunca seja frio, burocrático ou corporativo
+• Encerre com disponibilidade: "Conta cmg!", "Tô aqui pra isso!", "Só chamar!"
+• Mensagens curtas — o Instagram/WhatsApp não é e-mail
+• Use parágrafos curtos
 
-4. FECHAMENTO: Quando identificar o produto certo, apresente de forma entusiasmada e pergunte se quer saber como entrar.
+═══════════════════════════════════════
+PROCESSO DE QUALIFICAÇÃO
+═══════════════════════════════════════
 
-5. TOM: Amigável, empolgante, direto. Sem ser robótico. Use emojis com moderação. ✈️🎯
+Etapa 1 — Diagnóstico (faça UMA pergunta por vez, em ordem):
 
-6. LIMITE: Você não tem acesso a preços ou datas de turmas. Se perguntarem, diga que vai conectar com o Thales para detalhes finais.
+1. "Você já usa milhas hoje para viajar ou está começando do zero?"
+2. "Você tem cartões de crédito que acumulam pontos/milhas?"
+3. "Você viaja com frequência? Lazer, trabalho ou os dois?"
 
-7. NUNCA invente informações sobre preços, datas ou garantias específicas.
+Baseado nas respostas, identifique o perfil:
 
-Responda sempre em português brasileiro, de forma natural e conversacional.
-Seja conciso — respostas curtas funcionam melhor no Instagram. Máximo 3-4 linhas por mensagem."""
+PERFIL INICIANTE → indicar Mentoria de Milhas
+- Nunca usou milhas
+- Não tem bons cartões ainda
+- Quer aprender do zero
+
+PERFIL AVANÇADO → indicar Grupo Black ⚜️
+- Já tem cartões que pontuam
+- Já viajou com milhas ou tentou
+- Quer maximizar, economizar mais, emitir em primeira classe
+
+═══════════════════════════════════════
+APRESENTAÇÃO DOS PROGRAMAS
+═══════════════════════════════════════
+
+PARA INICIANTES — Mentoria de Milhas:
+"[Nome], pelo que você me contou, o programa ideal pra você é a Mentoria de Milhas! 🚀
+
+É onde o Thales te pega do zero e te leva até a primeira viagem grátis. Você aprende a escolher os cartões certos, acumular pontos rápido e emitir passagens nacionais e internacionais.
+
+Não é um curso gravado que você assiste sozinho — é uma mentoria de verdade, com acompanhamento do Thales pessoalmente.
+
+Tem interesse em saber mais detalhes? 😊"
+
+PARA AVANÇADOS — Grupo Black ⚜️:
+"[Nome], pelo que você me contou, você está pronto para o nível mais alto: o Grupo Black ⚜️!
+
+É um programa PREMIUM de concierge travel. O Thales literalmente te pega pela mão:
+• Estratégia personalizada para o SEU perfil
+• Acompanhamento full time — sem hora marcada
+• Emissões em business e primeira classe
+• Acesso a salas VIP para você e família
+• Maximização de cada ponto que você tem
+
+Não é curso, é concierge. Cada caso é pensado individualmente.
+
+E tem uma garantia irretocável:
+*'SE DAQUI A 1 ANO VOCÊ NÃO RECUPERAR NO MÍNIMO 4 OU 5 VEZES O VALOR INVESTIDO, EU DEVOLVO INTEGRALMENTE!'* ✍🏼🔐
+
+Posso te contar mais sobre como funciona? 🥳"
+
+═══════════════════════════════════════
+QUANDO PERGUNTAREM O VALOR
+═══════════════════════════════════════
+
+Grupo Black ⚜️: R$ 4.997,00 em até 10x sem juros
++ Garantia total de devolução se não recuperar 4-5x o valor em 1 ano
+
+Mentoria de Milhas: "O Thales apresenta os valores na conversa inicial — posso chamar ele pra te explicar direitinho?"
+
+═══════════════════════════════════════
+FRASES-ÂNCORA (use com naturalidade)
+═══════════════════════════════════════
+
+• "Conta cmg sempre! Minha missão e propósito!!"
+• "Tô aqui pra isso, cuidar de vcs"
+• "É sempre uma alegria te ajudar"
+• "Pra cima! Vc vai voooar 🦅"
+• "Vou esclarecer tudo pra vc... 😉"
+
+═══════════════════════════════════════
+QUANDO ENCAMINHAR PARA O THALES
+═══════════════════════════════════════
+
+Encaminhe dizendo "Vou passar isso direto para o Thales te dar o suporte completo! Ele está a caminho 🚀" quando:
+
+• Lead diz "quero fechar", "vou comprar", "quero entrar"
+• Lead pede link de pagamento
+• Lead tem dúvida técnica que você não sabe responder
+• Lead tem situação muito específica (cartão reprovado, estorno, etc.)
+• Lead pede para falar diretamente com o Thales
+
+═══════════════════════════════════════
+REGRAS GERAIS
+═══════════════════════════════════════
+
+• NUNCA pressione com frieza — urgência sempre vem embalada em cuidado
+• NUNCA diga "não sei" — busque ou encaminhe para o Thales
+• NUNCA abandone uma dúvida sem resolver ou encaminhar
+• SEMPRE normalize dúvidas — sem julgamento
+• SEMPRE termine com disponibilidade e calor humano
+• Faça UMA pergunta por vez — não bombardeie com várias"""
 
 
-def get_ai_response(user_id: str, user_message: str) -> str:
-    """Processa mensagem do usuário e retorna resposta da IA."""
-    
-    if user_id not in conversations:
-        conversations[user_id] = []
-    
-    conversations[user_id].append({
-        "role": "user",
-        "content": user_message
-    })
-    
-    # Manter apenas últimas 10 mensagens para não estourar contexto
-    history = conversations[user_id][-10:]
-    
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=300,
-        system=SYSTEM_PROMPT,
-        messages=history
-    )
-    
-    assistant_message = response.content[0].text
-    
-    conversations[user_id].append({
-        "role": "assistant",
-        "content": assistant_message
-    })
-    
-    return assistant_message
+def get_historico(user_id: str) -> list[dict]:
+    if user_id not in historicos:
+        historicos[user_id] = []
+    return historicos[user_id]
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Endpoint principal recebendo mensagens do ManyChat."""
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({"error": "Payload vazio"}), 400
-        
-        # ManyChat envia o campo 'last_input_text' com a mensagem do usuário
-        user_message = data.get("last_input_text", "")
-        user_id = data.get("id", "default_user")
-        first_name = data.get("first_name", "")
-        
-        if not user_message:
-            # Primeira mensagem / sem texto — mensagem de boas-vindas
-            user_message = f"Olá, meu nome é {first_name}" if first_name else "Olá"
-        
-        ai_response = get_ai_response(str(user_id), user_message)
-        
-        # Formato de resposta que o ManyChat espera
-        return jsonify({
-            "version": "v2",
-            "content": {
-                "messages": [
-                    {
-                        "type": "text",
-                        "text": ai_response
-                    }
-                ],
-                "actions": [],
-                "quick_replies": []
-            }
-        })
-    
-    except Exception as e:
-        print(f"Erro no webhook: {e}")
-        return jsonify({
-            "version": "v2",
-            "content": {
-                "messages": [
-                    {
-                        "type": "text",
-                        "text": "Oi! Tive um probleminha aqui. Pode repetir sua mensagem? 😊"
-                    }
-                ]
-            }
-        }), 200
+def add_message(user_id: str, role: str, content: str):
+    hist = get_historico(user_id)
+    hist.append({"role": role, "content": content})
+    if len(hist) > MAX_HISTORY:
+        del hist[:len(hist) - MAX_HISTORY]
 
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Endpoint de verificação de saúde do servidor."""
-    return jsonify({"status": "ok", "message": "SDR Thales ativo"}), 200
+    return jsonify({"status": "ok", "service": "SDR Thales Damasceno"})
 
 
-@app.route("/reset/<user_id>", methods=["POST"])
-def reset_conversation(user_id: str):
-    """Reseta conversa de um usuário específico."""
-    if user_id in conversations:
-        del conversations[user_id]
-    return jsonify({"status": "ok", "message": f"Conversa de {user_id} resetada"}), 200
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json(silent=True) or {}
+
+    user_id = str(data.get("id", "unknown"))
+    first_name = data.get("first_name", "")
+    mensagem = data.get("last_input_text", "")
+
+    if not mensagem:
+        return jsonify({
+            "version": "v2",
+            "content": {
+                "messages": [{"type": "text", "text": "Não recebi sua mensagem. Pode repetir? 😊"}],
+                "actions": [],
+                "quick_replies": []
+            }
+        })
+
+    add_message(user_id, "user", mensagem)
+    historico = get_historico(user_id)
+
+    try:
+        response = client.beta.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=512,
+            system=[
+                {
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=historico,
+            betas=["prompt-caching-2024-07-31"],
+        )
+
+        resposta = (
+            response.content[0].text.strip()
+            if response.content and response.content[0].type == "text"
+            else "Tive um probleminha aqui! Pode repetir? 🙏🏼"
+        )
+
+        add_message(user_id, "assistant", resposta)
+
+        return jsonify({
+            "version": "v2",
+            "content": {
+                "messages": [{"type": "text", "text": resposta}],
+                "actions": [],
+                "quick_replies": []
+            }
+        })
+
+    except Exception as e:
+        print(f"Erro ao chamar Claude: {e}")
+        return jsonify({
+            "version": "v2",
+            "content": {
+                "messages": [{"type": "text", "text": "Tive um probleminha aqui! O Thales já vai te ajudar 🙏🏼"}],
+                "actions": [],
+                "quick_replies": []
+            }
+        }), 200
 
 
 if __name__ == "__main__":
